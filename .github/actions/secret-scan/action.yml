@@ -1,0 +1,108 @@
+name: "SecretForge Secret Scan"
+description: "Install SecretForge + TruffleHog and scan a repository for secrets"
+inputs:
+  path:
+    description: "Path to scan"
+    required: false
+    default: "."
+  branch:
+    description: "Branch or ref to scan"
+    required: false
+    default: "HEAD"
+  max_depth:
+    description: "Max commit depth (0 = all)"
+    required: false
+    default: "0"
+  mode:
+    description: "Scan mode: git or filesystem (git skips if no commits)"
+    required: false
+    default: "git"
+  include_paths_file:
+    description: "Optional include regex file"
+    required: false
+    default: ""
+  exclude_paths_file:
+    description: "Optional exclude regex file"
+    required: false
+    default: ""
+  output:
+    description: "Output report path"
+    required: false
+    default: "secret-scan.json"
+  fail_on_find:
+    description: "Fail the job if any finding is present"
+    required: false
+    default: "true"
+outputs:
+  report:
+    description: "Path to the generated scan report"
+runs:
+  using: "composite"
+  steps:
+    - name: Install SecretForge CLI
+      shell: bash
+      run: npm install -g secretforge
+
+    - name: Install TruffleHog
+      shell: bash
+      run: |
+        python3 -m pip install --upgrade pip
+        python3 -m pip install "GitPython==3.0.6" "trufflehog==2.2.1"
+
+    - name: Run secret scan
+      id: scan
+      shell: bash
+      env:
+        SCAN_PATH: ${{ inputs.path }}
+        BRANCH: ${{ inputs.branch }}
+        MAX_DEPTH: ${{ inputs.max_depth }}
+        MODE: ${{ inputs.mode }}
+        INCLUDE_FILE: ${{ inputs.include_paths_file }}
+        EXCLUDE_FILE: ${{ inputs.exclude_paths_file }}
+        OUTPUT: ${{ inputs.output }}
+      run: |
+        set -e
+        INCLUDE_ARG=""; [ -n "$INCLUDE_FILE" ] && INCLUDE_ARG="-i $INCLUDE_FILE"
+        DEFAULT_EXCLUDES=/tmp/trufflehog_excludes.txt
+        cat > "$DEFAULT_EXCLUDES" <<'EOF'
+^\.git/
+^\.venv/
+^node_modules/
+^vendor/
+^dist/
+^build/
+EOF
+        EXCLUDE_ARG="-x $DEFAULT_EXCLUDES"
+        if [ -n "$EXCLUDE_FILE" ]; then
+          EXCLUDE_ARG="$EXCLUDE_ARG -x $EXCLUDE_FILE"
+        fi
+
+        if [ "$MODE" = "git" ]; then
+          if ! git -C "$SCAN_PATH" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            echo "Not a git repo, skipping git scan." >&2
+            : > "$OUTPUT"
+            exit 0
+          fi
+          if ! git -C "$SCAN_PATH" rev-parse HEAD >/dev/null 2>&1; then
+            echo "No commits yet, skipping git scan." >&2
+            : > "$OUTPUT"
+            exit 0
+          fi
+          trufflehog --json --regex --entropy True --max_depth "$MAX_DEPTH" --branch "$BRANCH" --repo_path "$SCAN_PATH" $INCLUDE_ARG $EXCLUDE_ARG "$SCAN_PATH" > "$OUTPUT" || true
+        else
+          # Filesystem fallback (coarse): scan current tree without git history
+          trufflehog --json --regex --entropy True $INCLUDE_ARG $EXCLUDE_ARG "$SCAN_PATH" > "$OUTPUT" || true
+        fi
+        echo "report=$OUTPUT" >> "$GITHUB_OUTPUT"
+
+    - name: Fail on findings
+      if: inputs.fail_on_find == 'true'
+      shell: bash
+      env:
+        OUTPUT: ${{ inputs.output }}
+      run: |
+        if [ -s "$OUTPUT" ]; then
+          echo "Potential secrets detected!" >&2
+          head -n 50 "$OUTPUT"
+          exit 1
+        fi
