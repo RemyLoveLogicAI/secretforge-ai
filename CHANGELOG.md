@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Added hidden interactive and piped-stdin secret entry with the existing argument-based `set` form retained for compatibility.
+
 ## [1.2.0] - 2026-10-07
 
 ### Added

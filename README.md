@@ -17,7 +17,9 @@ secretforge init
 Commands:
 
 ```bash
-secretforge set OPENAI_API_KEY 'your-secret-value'
+secretforge set OPENAI_API_KEY
+# Enter the value at the hidden prompt; or pipe one line:
+printf '%s\n' 'your-secret-value' | secretforge set OPENAI_API_KEY
 secretforge get OPENAI_API_KEY
 secretforge list
 eval "$(secretforge export)"
@@ -26,7 +28,7 @@ secretforge --version
 
 The vault lives in `~/.secretforge`; the directory is restricted to mode `700`, and its key and configuration files to `600`. Secret values are encrypted with OpenSSL AES-256-CBC and PBKDF2. Back up the vault securely: losing `.key` makes stored values unrecoverable. This is a local convenience vault, not protection against a compromised user account: the key is stored alongside the ciphertext, and the CBC format does not authenticate data.
 
-`set` takes the value as a command-line argument, which may be retained in shell history or visible to local process inspection. Avoid using it on shared or untrusted systems.
+For interactive use, `set` prompts without echoing the secret. You can also pipe a single line to `set` for scripts. The legacy `set KEY VALUE` form remains available, but the value may be retained in shell history or visible to local process inspection; avoid it on shared or untrusted systems.
 
 ## CI secret scanning
 - Workflow: `.github/workflows/secretforge.yml` runs on push/PR to `main`.

@@ -23,6 +23,53 @@ value="value with spaces, \$dollars, and \"quotes\""
 "$CLI" set API_KEY "$value" >/dev/null
 [[ "$("$CLI" get API_KEY)" == "$value" ]] || fail "round-trip secret"
 
+printf '%s\n' 'piped-value' | "$CLI" set PIPED_KEY >/dev/null
+[[ "$("$CLI" get PIPED_KEY)" == 'piped-value' ]] || fail "piped secret input"
+
+python3 - "$CLI" <<'PY'
+import os, pty, select, subprocess, sys, time
+
+cli = sys.argv[1]
+master, slave = pty.openpty()
+process = subprocess.Popen(
+    [cli, "set", "PROMPTED_KEY"],
+    stdin=slave,
+    stdout=slave,
+    stderr=slave,
+    env=os.environ.copy(),
+    close_fds=True,
+)
+os.close(slave)
+transcript = bytearray()
+sent = False
+deadline = time.monotonic() + 10
+
+while time.monotonic() < deadline:
+    ready, _, _ = select.select([master], [], [], 0.1)
+    if ready:
+        try:
+            chunk = os.read(master, 4096)
+        except OSError:
+            break
+        transcript.extend(chunk)
+        if not sent and b"Secret value: " in transcript:
+            os.write(master, b"hidden-terminal-value\n")
+            sent = True
+    if process.poll() is not None:
+        break
+
+os.close(master)
+if process.poll() is None:
+    process.kill()
+    process.wait()
+    raise SystemExit("FAIL: hidden-input prompt timed out")
+if process.returncode != 0:
+    raise SystemExit("FAIL: hidden-input command failed: " + transcript.decode(errors="replace"))
+if not sent or b"hidden-terminal-value" in transcript:
+    raise SystemExit("FAIL: terminal secret was missing or echoed")
+PY
+[[ "$("$CLI" get PROMPTED_KEY)" == 'hidden-terminal-value' ]] || fail "hidden terminal input"
+
 eval "$("$CLI" export)"
 [[ "$API_KEY" == "$value" ]] || fail "exported environment value"
 
