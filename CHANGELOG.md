@@ -4,6 +4,7 @@
 
 ### Added
 - Added hidden interactive and piped-stdin secret entry with the existing argument-based `set` form retained for compatibility.
+- Added HMAC-SHA-256 integrity tags to newly stored secrets; tampered authenticated records are rejected and legacy records remain readable with a warning.
 
 ## [1.2.0] - 2026-10-07
 

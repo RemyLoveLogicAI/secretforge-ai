@@ -23,6 +23,73 @@ value="value with spaces, \$dollars, and \"quotes\""
 "$CLI" set API_KEY "$value" >/dev/null
 [[ "$("$CLI" get API_KEY)" == "$value" ]] || fail "round-trip secret"
 
+python3 - "$HOME/.secretforge/config.json" <<'PY'
+import json, sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    config = json.load(f)
+record = config["secrets"]["API_KEY"]
+assert record["format_version"] == 2
+assert len(record["mac"]) == 64
+PY
+
+cp "$HOME/.secretforge/config.json" "$TEST_HOME/integrity-backup"
+python3 - "$HOME/.secretforge/config.json" <<'PY'
+import json, sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    config = json.load(f)
+record = config["secrets"]["API_KEY"]
+prefix = "secretforge:v2:"
+index = len(prefix)
+record["value"] = record["value"][:index] + ("A" if record["value"][index] != "A" else "B") + record["value"][index + 1:]
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(config, f)
+PY
+if "$CLI" get API_KEY >"$TEST_HOME/tampered-output" 2>"$TEST_HOME/tampered-error"; then
+  fail "tampered secret must be rejected"
+fi
+grep -q 'integrity check failed' "$TEST_HOME/tampered-error" || fail "tamper rejection message"
+[[ ! -s "$TEST_HOME/tampered-output" ]] || fail "tampered secret was returned"
+cp "$TEST_HOME/integrity-backup" "$HOME/.secretforge/config.json"
+
+python3 - "$HOME/.secretforge/config.json" <<'PY'
+import json, sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    config = json.load(f)
+config["secrets"]["API_KEY"]["format_version"] = 1
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(config, f)
+PY
+if "$CLI" get API_KEY >"$TEST_HOME/downgrade-output" 2>"$TEST_HOME/downgrade-error"; then
+  fail "downgraded authenticated secret must be rejected"
+fi
+grep -q 'integrity check failed' "$TEST_HOME/downgrade-error" || fail "downgrade rejection message"
+[[ ! -s "$TEST_HOME/downgrade-output" ]] || fail "downgraded secret was returned"
+cp "$TEST_HOME/integrity-backup" "$HOME/.secretforge/config.json"
+
+python3 - "$HOME/.secretforge/config.json" <<'PY'
+import json, sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    config = json.load(f)
+record = config["secrets"]["API_KEY"]
+record.pop("format_version")
+record.pop("mac")
+prefix = "secretforge:v2:"
+if record["value"].startswith(prefix):
+    record["value"] = record["value"][len(prefix):]
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(config, f)
+PY
+[[ "$("$CLI" get API_KEY 2>"$TEST_HOME/legacy-warning")" == "$value" ]] || fail "legacy secret compatibility"
+grep -q 'legacy secret has no integrity check' "$TEST_HOME/legacy-warning" || fail "legacy warning"
+"$CLI" set API_KEY "$value" >/dev/null
+
 printf '%s\n' 'piped-value' | "$CLI" set PIPED_KEY >/dev/null
 [[ "$("$CLI" get PIPED_KEY)" == 'piped-value' ]] || fail "piped secret input"
 
