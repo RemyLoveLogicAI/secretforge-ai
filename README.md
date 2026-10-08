@@ -22,6 +22,7 @@ secretforge set OPENAI_API_KEY
 printf '%s\n' 'your-secret-value' | secretforge set OPENAI_API_KEY
 secretforge get OPENAI_API_KEY
 secretforge list
+secretforge migrate
 eval "$(secretforge export)"
 secretforge --version
 ```
@@ -29,6 +30,8 @@ secretforge --version
 The vault lives in `~/.secretforge`; the directory is restricted to mode `700`, and its key and configuration files to `600`. Secret values are encrypted with OpenSSL AES-256-CBC and PBKDF2. New and re-saved secrets receive a domain-separated HMAC-SHA-256 integrity tag that is checked before decryption, and authenticated records use a versioned envelope. Existing legacy records remain readable with a warning until re-saved. Back up the vault securely: losing `.key` makes stored values unrecoverable. This is a local convenience vault, not protection against a compromised user account: the key is stored alongside the ciphertext.
 
 For interactive use, `set` prompts without echoing the secret. You can also pipe a single line to `set` for scripts. The legacy `set KEY VALUE` form remains available, but the value may be retained in shell history or visible to local process inspection; avoid it on shared or untrusted systems.
+
+Run `secretforge migrate` to add integrity tags to all legacy records in one atomic update. It verifies already-authenticated records first and refuses to write anything if one is invalid. The operation is idempotent.
 
 ## CI secret scanning
 - Workflow: `.github/workflows/secretforge.yml` runs on push/PR to `main`.

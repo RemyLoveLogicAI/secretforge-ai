@@ -47,11 +47,17 @@ record["value"] = record["value"][:index] + ("A" if record["value"][index] != "A
 with open(path, "w", encoding="utf-8") as f:
     json.dump(config, f)
 PY
+cp "$HOME/.secretforge/config.json" "$TEST_HOME/tampered-backup"
 if "$CLI" get API_KEY >"$TEST_HOME/tampered-output" 2>"$TEST_HOME/tampered-error"; then
   fail "tampered secret must be rejected"
 fi
 grep -q 'integrity check failed' "$TEST_HOME/tampered-error" || fail "tamper rejection message"
 [[ ! -s "$TEST_HOME/tampered-output" ]] || fail "tampered secret was returned"
+if "$CLI" migrate >"$TEST_HOME/migrate-output" 2>"$TEST_HOME/migrate-error"; then
+  fail "migration must reject an invalid authenticated record"
+fi
+grep -q 'no migration was applied' "$TEST_HOME/migrate-error" || fail "migration rejection message"
+cmp -s "$HOME/.secretforge/config.json" "$TEST_HOME/tampered-backup" || fail "migration changed tampered vault"
 cp "$TEST_HOME/integrity-backup" "$HOME/.secretforge/config.json"
 
 python3 - "$HOME/.secretforge/config.json" <<'PY'
@@ -88,7 +94,18 @@ with open(path, "w", encoding="utf-8") as f:
 PY
 [[ "$("$CLI" get API_KEY 2>"$TEST_HOME/legacy-warning")" == "$value" ]] || fail "legacy secret compatibility"
 grep -q 'legacy secret has no integrity check' "$TEST_HOME/legacy-warning" || fail "legacy warning"
-"$CLI" set API_KEY "$value" >/dev/null
+[[ "$("$CLI" migrate)" == 'Migrated 1 legacy secret(s).' ]] || fail "legacy migration"
+[[ "$("$CLI" get API_KEY)" == "$value" ]] || fail "migrated legacy secret"
+python3 - "$HOME/.secretforge/config.json" <<'PY'
+import json, sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    config = json.load(f)
+record = config["secrets"]["API_KEY"]
+assert record["format_version"] == 2
+assert len(record["mac"]) == 64
+PY
+[[ "$("$CLI" migrate)" == 'Migrated 0 legacy secret(s).' ]] || fail "idempotent migration"
 
 printf '%s\n' 'piped-value' | "$CLI" set PIPED_KEY >/dev/null
 [[ "$("$CLI" get PIPED_KEY)" == 'piped-value' ]] || fail "piped secret input"
