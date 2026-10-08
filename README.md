@@ -1,6 +1,32 @@
-# secretforge-ai
+# SecretForge
 
-Secret scanning CI setup using a reusable composite GitHub Action.
+SecretForge provides a local encrypted-secrets CLI and a reusable GitHub Action for secret scanning. They are separate tools: the CLI stores and retrieves secrets; the Action scans repositories for exposed secrets.
+
+## Local CLI
+
+Requirements: Bash, Python 3, and OpenSSL.
+
+Install the script into a directory on your `PATH`:
+
+```bash
+install -d "$HOME/.local/bin"
+install -m 755 secretforge "$HOME/.local/bin/secretforge"
+secretforge init
+```
+
+Commands:
+
+```bash
+secretforge set OPENAI_API_KEY 'your-secret-value'
+secretforge get OPENAI_API_KEY
+secretforge list
+eval "$(secretforge export)"
+secretforge --version
+```
+
+The vault lives in `~/.secretforge`; the directory is restricted to mode `700`, and its key and configuration files to `600`. Secret values are encrypted with OpenSSL AES-256-CBC and PBKDF2. Back up the vault securely: losing `.key` makes stored values unrecoverable. This is a local convenience vault, not protection against a compromised user account: the key is stored alongside the ciphertext, and the CBC format does not authenticate data.
+
+`set` takes the value as a command-line argument, which may be retained in shell history or visible to local process inspection. Avoid using it on shared or untrusted systems.
 
 ## CI secret scanning
 - Workflow: `.github/workflows/secretforge.yml` runs on push/PR to `main`.
@@ -34,4 +60,4 @@ Add `-i include.txt` or `-x exclude.txt` to narrow or skip paths; files contain 
 MIT (see LICENSE).
 
 ## Contributing
-See CONTRIBUTING. Add tests for changes when possible.
+See CONTRIBUTING. Run the CLI smoke test with `bash tests/smoke.sh` and lint the shell scripts with `shellcheck secretforge tests/smoke.sh`.
